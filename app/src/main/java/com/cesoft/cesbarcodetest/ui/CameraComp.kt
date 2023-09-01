@@ -49,37 +49,24 @@ fun CameraCompo() {
                 }.also { previewView ->
                     previewView.controller = cameraController
                     cameraController.bindToLifecycle(lifecycleOwner)
-
-                    startCamera(context, previewView, lifecycleOwner)
+                    startCamera(context, previewView, lifecycleOwner, cameraController)
                 }
             }
         )
     }
 }
 
-private fun startCamera(context: Context, previewView: PreviewView, lifecycleOwner: LifecycleOwner) {
-    val cameraController = LifecycleCameraController(context)
-
-    val options = BarcodeScannerOptions.Builder()
-        .setBarcodeFormats(Barcode.FORMAT_ALL_FORMATS)
-        .build()
-    val barcodeScanner = BarcodeScanning.getClient(options)
-
-    val imageAnalysisAnalyzer = MlKitAnalyzer(
-        listOf(barcodeScanner),
-        CameraController.COORDINATE_SYSTEM_VIEW_REFERENCED,
-        ContextCompat.getMainExecutor(context)
-    ) { result: MlKitAnalyzer.Result? ->
+private fun startCamera(
+    context: Context,
+    previewView: PreviewView,
+    lifecycleOwner: LifecycleOwner,
+    cameraController: LifecycleCameraController,
+) {
+    val imageAnalysisAnalyzer = getBarcodeAnalyzer(context) { barcodes ->
         previewView.overlay.clear()
-        val barcodeResults = result?.getValue(barcodeScanner)
-        if ((barcodeResults == null) || (barcodeResults.size == 0) || (barcodeResults.first() == null)) {
-            previewView.setOnTouchListener { _, _ -> false } //no-op
-            return@MlKitAnalyzer
-        }
-        for (barcode in barcodeResults) {
-            val error = barcode.rawValue!!.startsWith("84")
-            val qrCodeDrawable = QrCodeDrawable(QrCodeViewModel(barcode, error))
-            previewView.overlay.add(qrCodeDrawable)
+        for(barcode in barcodes) {
+            val drawable = BarcodeDrawable(barcode)
+            previewView.overlay.add(drawable)
         }
     }
     cameraController.setImageAnalysisAnalyzer(
@@ -89,4 +76,26 @@ private fun startCamera(context: Context, previewView: PreviewView, lifecycleOwn
 
     cameraController.bindToLifecycle(lifecycleOwner)
     previewView.controller = cameraController
+}
+
+private fun getBarcodeAnalyzer(
+    context: Context,
+    callback: (List<BarcodeData>) -> Unit
+): MlKitAnalyzer {
+    val options = BarcodeScannerOptions.Builder()
+        .setBarcodeFormats(Barcode.FORMAT_ALL_FORMATS)
+        .build()
+    val barcodeScanner = BarcodeScanning.getClient(options)
+    return MlKitAnalyzer(
+        listOf(barcodeScanner),
+        CameraController.COORDINATE_SYSTEM_VIEW_REFERENCED,
+        ContextCompat.getMainExecutor(context)
+    ) { result: MlKitAnalyzer.Result? ->
+        val barcodeResults = result?.getValue(barcodeScanner)
+        val res = barcodeResults?.map {
+            val error = it.rawValue!!.startsWith("84")
+            BarcodeData(it, error)
+        } ?: listOf()
+        callback(res)
+    }
 }
